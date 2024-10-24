@@ -1,5 +1,6 @@
 import os
-import openai
+from openai import AsyncOpenAI
+import asyncio
 from telegram import Update
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
 
@@ -7,22 +8,29 @@ from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
-# Initialize the OpenAI API
-openai.api_key = OPENAI_API_KEY
+# Initialize the new OpenAI API client
+client = AsyncOpenAI(api_key=OPENAI_API_KEY)
 
-# Define a function to call the LLM API for translation using completions.create
-def translate_text(input_text):
+# Define an asynchronous function to call the new OpenAI API for translation
+async def async_translate_text(input_text):
     try:
-        # Using the new 'completions.create' method in OpenAI v1.0.0+
-        response = openai.completions.create(
-            model="gpt-4",  # Adjust model to your subscription, gpt-4 or gpt-3.5
-            prompt=f"Translate the following text to English: {input_text}",
-            max_tokens=100,
-            temperature=0.5
+        # Asynchronous request to OpenAI ChatCompletion API using the new interface
+        response = await client.chat.completions.create(
+            model="gpt-3.5-turbo",  # Or use gpt-4 if your subscription supports it
+            messages=[
+                {"role": "user", "content": input_text}
+            ]
         )
-        return response.choices[0].text.strip()
+
+        # Extracting the message content using the correct attribute
+        translated_message = response.choices[0].message.content.strip()
+        return translated_message
     except Exception as e:
         return f"Error: {str(e)}"
+
+# Synchronous wrapper to call the async function using asyncio.run()
+def translate_text(input_text):
+    return asyncio.run(async_translate_text(input_text))
 
 # Define the start command
 def start(update: Update, context) -> None:
@@ -31,6 +39,7 @@ def start(update: Update, context) -> None:
 # Handle incoming messages
 def handle_message(update: Update, context) -> None:
     user_message = update.message.text
+    # Call the synchronous wrapper that runs the async translation
     translated_message = translate_text(user_message)
     update.message.reply_text(translated_message)
 
