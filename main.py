@@ -11,13 +11,14 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 # Initialize the new OpenAI API client
 client = AsyncOpenAI(api_key=OPENAI_API_KEY)
 
-# Define an asynchronous function to call the new OpenAI API for translation
+# Define an asynchronous function to call the OpenAI API for translation
 async def async_translate_text(input_text):
     try:
         # Asynchronous request to OpenAI ChatCompletion API using the new interface
         response = await client.chat.completions.create(
             model="gpt-3.5-turbo",  # Or use gpt-4 if your subscription supports it
             messages=[
+                {"role": "system", "content": "You are a translator that translates any input to English."},
                 {"role": "user", "content": input_text}
             ]
         )
