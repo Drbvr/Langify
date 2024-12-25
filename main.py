@@ -1,8 +1,8 @@
 import os
 from openai import AsyncOpenAI
 import asyncio
-from telegram import Update
-from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, ConversationHandler
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackQueryHandler
 from replit import db
 import logging
 
@@ -16,9 +16,6 @@ client = AsyncOpenAI(api_key=OPENAI_API_KEY)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-
-# Define a constant for the approval conversation state
-APPROVAL = range(1)
 
 # Define an asynchronous function to call the OpenAI API for translation
 async def async_translate_text(input_text):
@@ -80,11 +77,47 @@ def request_approval(update: Update, context) -> None:
 
     logging.info(f"Requesting approval for new user: {user_id}")
 
+    # Create inline keyboard with "Approve" and "Deny" buttons
+    keyboard = [
+        [
+            InlineKeyboardButton("Approve", callback_data=f"approve_{user_id}"),
+            InlineKeyboardButton("Deny", callback_data=f"deny_{user_id}")
+        ]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    # Send the approval request to the admin with inline buttons
     context.bot.send_message(
         chat_id=ADMIN_TELEGRAM_ID,
-        text=f"New user detected: {user_id}\n\nApprove (type 'approve') or deny (type 'deny')?"
+        text=f"New user detected: {user_id}\n\nDo you want to approve or deny access?",
+        reply_markup=reply_markup
     )
-    context.user_data["pending_approval_user"] = user_id
+
+# Handle the admin's response to approval requests
+def handle_approval_response(update: Update, context) -> None:
+    query = update.callback_query
+    query.answer()
+
+    # Extract the action (approve/deny) and user_id from the callback data
+    action, user_id = query.data.split("_")
+
+    if action == "approve":
+        try:
+            if "approved_users" not in db["bot_data"]:
+                db["bot_data"]["approved_users"] = []
+            db["bot_data"]["approved_users"].append(str(user_id))
+            context.bot.send_message(chat_id=user_id, text="You have been approved! You can now use the bot.")
+            query.edit_message_text(text=f"User {user_id} approved.")
+        except Exception as e:
+            logging.error(f"Error approving user {user_id}: {e}")
+            query.edit_message_text(text="An error occurred while approving the user.")
+    elif action == "deny":
+        try:
+            context.bot.send_message(chat_id=user_id, text="You have been denied access to this bot.")
+            query.edit_message_text(text=f"User {user_id} denied.")
+        except Exception as e:
+            logging.error(f"Error denying user {user_id}: {e}")
+            query.edit_message_text(text="An error occurred while denying the user.")
 
 # Handle incoming messages
 def handle_message(update: Update, context) -> None:
@@ -103,7 +136,7 @@ def handle_message(update: Update, context) -> None:
         if is_admin(user_id):
             logging.info(f"Admin {user_id} is recognized as approved.")
         else:
-            logging.info(f"User {user_id} is not approved, requesting approval.")
+            logging.info(f"User {user_id} is not approved, requesting             approval.")
             update.message.reply_text("You are not authorized to use this bot. Please wait for approval.")
             request_approval(update, context)
             return
@@ -142,6 +175,9 @@ def main():
 
     # Add a message handler to handle incoming messages
     dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_message))
+
+    # Add a callback query handler for inline keyboard approval actions
+    dp.add_handler(CallbackQueryHandler(handle_approval_response))
 
     # Start the bot
     updater.start_polling()
